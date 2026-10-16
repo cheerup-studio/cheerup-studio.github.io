@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>수업 가능 시간</title>
+<title>치얼업 필라테스 PT시간표</title>
+<meta property="og:title" content="치얼업 필라테스 PT시간표">
+<meta property="og:description" content="이번 주부터 3주간 예약 가능한 시간을 확인하세요">
+<meta property="og:type" content="website">
 <style>
   body { font-family: system-ui, sans-serif; margin: 0; padding: 12px 12px 90px; background: #f4f4f4; color: #222; }
   .bar { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 4px 0 12px; }
@@ -119,7 +122,6 @@ function showWeek(k) {
   var fri = addDays(monday, 4);
   document.getElementById('wTitle').textContent = monday.replace(/-/g, '.') + ' ~ ' + fri.slice(5).replace('-', '.');
   drawWeek(cache[monday]);
-  load(monday);
 }
 function moveWeek(n) { showWeek(addDays(monday, n)); }
 
@@ -140,26 +142,31 @@ function drawWeek(data) {
     h += '</tr>';
   }
   document.getElementById('week').innerHTML = h;
-  document.getElementById('status').textContent = data ? '' : '불러오는 중…';
+  document.getElementById('status').textContent = data ? '' : failed ? '잠시 후 다시 열어주세요' : '불러오는 중…';
   var msg = document.getElementById('msg');
   msg.hidden = !data || data.fgOk;
   msg.textContent = '플렉스짐 정보를 못 불러와서 일부 수업이 빠져 있을 수 있어요. 잠시 후 다시 열어주세요.';
 }
 
-function load(m) {
-  fetch(API + '?week=' + m).then(function (r) { return r.json(); }).then(function (data) {
+// 3주치를 한 번에 받는다. 화면을 열자마자 불러서 날짜를 누를 즈음엔 이미 받아져 있게
+var failed = false;
+function load() {
+  fetch(API).then(function (r) { return r.json(); }).then(function (data) {
     if (data.error) throw new Error(data.error);
-    cache[m] = data;
+    cache = {};
+    data.weeks.forEach(function (w) { cache[w.monday] = w; });
     try { localStorage.setItem('free-weeks', JSON.stringify(cache)); } catch (e) {}
     // 고른 사이에 막힌 시간은 빼기
     picked = picked.filter(function (id) {
-      var d = id.split('|')[0], i = (parse(d) - parse(m)) / 864e5;
-      return i < 0 || i > 4 || !data.busy[i][+id.split('|')[1] - 10];
+      var d = id.split('|')[0], w = cache[mondayOf(d)], i = (parse(d) - parse(mondayOf(d))) / 864e5;
+      return w && !w.busy[i][+id.split('|')[1] - 10];
     });
     updateSend();
-    if (m === monday) drawWeek(data);
+    failed = false;
+    if (monday) drawWeek(cache[monday]);
   }).catch(function () {
-    if (m === monday && !cache[m]) document.getElementById('status').textContent = '잠시 후 다시 열어주세요';
+    failed = true;
+    if (monday && !cache[monday]) drawWeek();
   });
 }
 
@@ -197,11 +204,12 @@ function send() {
 }
 
 document.addEventListener('visibilitychange', function () {
-  if (document.visibilityState === 'visible' && monday && !document.getElementById('weekView').hidden) load(monday);
+  if (document.visibilityState === 'visible') load();
 });
 // 카톡 안 브라우저는 공유 기능을 막아서, 휴대폰 기본 브라우저(크롬·사파리)로 다시 연다
 if (/KAKAOTALK/i.test(navigator.userAgent)) location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href);
 showMonth();
+load();
 </script>
 </body>
 </html>
