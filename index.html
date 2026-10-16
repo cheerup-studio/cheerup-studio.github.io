@@ -22,9 +22,11 @@
   #month td.today { background: #e6f7fb; font-weight: 700; }
   #month td.off { color: #ccc; background: #f7f7f7; cursor: default; }
   #week th { font-size: .8rem; line-height: 1.3; }
+  #week th.tn { font-size: .62rem; font-weight: 500; padding: 3px 0; line-height: 1.2; }
+  #week .d0 { border-left: 2px solid #888; }
   #week th.today { background: #cdeef7; }
   #week td { height: 32px; cursor: pointer; }
-  #week td.t { background: #fce9d9; font-size: .8rem; font-weight: 600; width: 44px; cursor: default; }
+  #week td.t { background: #fce9d9; font-size: .75rem; font-weight: 600; cursor: default; }
   #week td.x { background: #666; cursor: default; }
   #week td.sel { background: #fee500; font-weight: 700; }
   #week td.sel::after { content: '✓'; }
@@ -55,21 +57,22 @@
   <table id="week"></table>
   <p class="msg" id="msg" hidden></p>
   <p class="muted" id="status"></p>
-  <p class="muted">원하는 빈 시간을 눌러 고른 뒤 아래 버튼으로 보내주세요</p>
+  <p class="muted">원하는 빈 시간을 눌러 고른 뒤 아래 버튼으로 문의해 주세요</p>
 </div>
 
 <div id="send" hidden>
   <span id="sendCount"></span>
   <button class="clear" onclick="clearPicked()">취소</button>
-  <button class="go" onclick="send()">카톡으로 보내기</button>
+  <button class="go" onclick="send()">시간문의하기</button>
 </div>
 
 <script>
 // 자료는 구글 앱스 스크립트 웹 앱에서 받는다 (booking/Code.gs)
 var API = 'https://script.google.com/macros/s/AKfycbwMCNu2he3AJqMeAte29mMUpRemw-P4gCdI_ntbF4me02uwMN1DEAVqHDaK-iaqrFKK/exec';
 var DAYS = ['일', '월', '화', '수', '목', '금', '토'];
+var TEACHERS = ['원장님', '정지원 선생님']; // 서버 busy[선생님] 순서와 같음
 var today = key(new Date()), ym = today.slice(0, 7), monday = null;
-var picked = []; // '2026-10-20|11' (날짜|시)
+var picked = []; // '2026-10-20|11|0' (날짜|시|선생님)
 
 function pad(n) { return (n < 10 ? '0' : '') + n; }
 function key(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
@@ -80,7 +83,7 @@ function mondayOf(k) { return addDays(k, -((parse(k).getDay() + 6) % 7)); }
 var first = mondayOf(today), last = addDays(first, 20);
 
 var cache = {};
-try { cache = JSON.parse(localStorage.getItem('free-weeks')) || {}; } catch (e) {}
+try { cache = JSON.parse(localStorage.getItem('free-weeks2')) || {}; } catch (e) {}
 Object.keys(cache).forEach(function (m) { if (m < first) delete cache[m]; });
 
 // ---------- 월 달력 ----------
@@ -126,18 +129,22 @@ function showWeek(k) {
 function moveWeek(n) { showWeek(addDays(monday, n)); }
 
 function drawWeek(data) {
-  var h = '<tr><th style="width:44px"></th>';
+  // 요일마다 두 칸: 원장님 | 정지원 선생님
+  var h = '<colgroup><col style="width:40px">' + new Array(11).join('<col>') + '</colgroup><tr><th rowspan="2"></th>', names = '';
   for (var i = 0; i < 5; i++) {
     var k = addDays(monday, i);
-    h += '<th class="' + (k === today ? 'today' : '') + '">' + DAYS[i + 1] + '<br>' + +k.slice(5, 7) + '/' + +k.slice(8) + '</th>';
+    h += '<th colspan="2" class="d0 ' + (k === today ? 'today' : '') + '">' + DAYS[i + 1] + '<br>' + +k.slice(5, 7) + '/' + +k.slice(8) + '</th>';
+    TEACHERS.forEach(function (n, tc) { names += '<th class="tn' + (tc ? '' : ' d0') + '">' + n.replace(' ', '<br>') + '</th>'; });
   }
-  h += '</tr>';
+  h += '</tr><tr>' + names + '</tr>';
   for (var t = 0; t < 13; t++) {
     h += '<tr><td class="t">' + (t + 10) + ':00</td>';
     for (i = 0; i < 5; i++) {
-      var id = addDays(monday, i) + '|' + (t + 10);
-      if (!data || data.busy[i][t]) h += '<td class="' + (data ? 'x' : '') + '"></td>';
-      else h += '<td class="' + (picked.indexOf(id) >= 0 ? 'sel' : '') + '" onclick="pick(\'' + id + '\')"></td>';
+      for (var tc = 0; tc < TEACHERS.length; tc++) {
+        var id = addDays(monday, i) + '|' + (t + 10) + '|' + tc, d0 = tc ? '' : 'd0 ';
+        if (!data || data.busy[tc][i][t]) h += '<td class="' + d0 + (data ? 'x' : '') + '"></td>';
+        else h += '<td class="' + d0 + (picked.indexOf(id) >= 0 ? 'sel' : '') + '" onclick="pick(\'' + id + '\')"></td>';
+      }
     }
     h += '</tr>';
   }
@@ -155,11 +162,11 @@ function load() {
     if (data.error) throw new Error(data.error);
     cache = {};
     data.weeks.forEach(function (w) { cache[w.monday] = w; });
-    try { localStorage.setItem('free-weeks', JSON.stringify(cache)); } catch (e) {}
+    try { localStorage.setItem('free-weeks2', JSON.stringify(cache)); } catch (e) {}
     // 고른 사이에 막힌 시간은 빼기
     picked = picked.filter(function (id) {
-      var d = id.split('|')[0], w = cache[mondayOf(d)], i = (parse(d) - parse(mondayOf(d))) / 864e5;
-      return w && !w.busy[i][+id.split('|')[1] - 10];
+      var p = id.split('|'), w = cache[mondayOf(p[0])], i = (parse(p[0]) - parse(mondayOf(p[0]))) / 864e5;
+      return w && !w.busy[+p[2]][i][+p[1] - 10];
     });
     updateSend();
     failed = false;
@@ -184,9 +191,9 @@ function updateSend() {
   document.getElementById('sendCount').textContent = '선택한 시간 ' + picked.length + '개';
 }
 function message() {
-  return '필라테스 예약 문의드려요.\n' + picked.map(function (id) {
-    var d = id.split('|')[0];
-    return +d.slice(5, 7) + '/' + +d.slice(8) + '(' + DAYS[parse(d).getDay()] + ') ' + id.split('|')[1] + ':00';
+  return '필라테스 PT 시간 문의드려요.\n' + picked.map(function (id) {
+    var p = id.split('|'), d = p[0];
+    return +d.slice(5, 7) + '/' + +d.slice(8) + '(' + DAYS[parse(d).getDay()] + ') ' + p[1] + ':00 ' + TEACHERS[+p[2]];
   }).join('\n') + '\n이 중에 가능한 시간 있을까요?';
 }
 function send() {
@@ -199,7 +206,7 @@ function send() {
   }
   // 공유 창이 없는 곳(컴퓨터 등): 복사
   (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(
-    function () { alert('복사했어요. 카톡에 붙여넣어 보내주세요.\n\n' + text); },
+    function () { alert('복사했어요. 카톡이나 문자에 붙여넣어 보내주세요.\n\n' + text); },
     function () { prompt('아래 글을 복사해서 보내주세요', text); });
 }
 
