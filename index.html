@@ -185,6 +185,11 @@ function message() {
 function send() {
   var text = message();
   if (navigator.share) return navigator.share({ text: text }).catch(function () {});
+  // 공유 기능이 막힌 안드로이드 브라우저: 안드로이드 공유 창을 직접 연다
+  if (/Android/i.test(navigator.userAgent)) {
+    location.href = 'intent:#Intent;action=android.intent.action.SEND;type=text/plain;S.android.intent.extra.TEXT=' + encodeURIComponent(text) + ';end';
+    return;
+  }
   // 공유 창이 없는 곳(컴퓨터 등): 복사
   (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(
     function () { alert('복사했어요. 카톡에 붙여넣어 보내주세요.\n\n' + text); },
@@ -194,6 +199,8 @@ function send() {
 document.addEventListener('visibilitychange', function () {
   if (document.visibilityState === 'visible' && monday && !document.getElementById('weekView').hidden) load(monday);
 });
+// 카톡 안 브라우저는 공유 기능을 막아서, 휴대폰 기본 브라우저(크롬·사파리)로 다시 연다
+if (/KAKAOTALK/i.test(navigator.userAgent)) location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href);
 showMonth();
 </script>
 </body>
