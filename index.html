@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>수업 가능 시간</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 12px 12px 90px; background: #f4f4f4; color: #222; }
+  .bar { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 4px 0 12px; }
+  .bar h1 { font-size: 1.5rem; margin: 0; min-width: 9em; text-align: center; }
+  .nav { width: 40px; height: 40px; border-radius: 50%; border: 0; background: #5f6b5f; color: #fff; font-size: 1.1rem; }
+  .back { position: absolute; left: 12px; top: 18px; border: 1px solid #bbb; background: #fff; border-radius: 6px; padding: 6px 10px; font-size: .9rem; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
+  th, td { border: 1px solid #ccc; text-align: center; }
+  th { background: #eee; font-weight: 600; padding: 6px 0; font-size: .9rem; }
+  .sun { color: #d33; } .sat { color: #36c; }
+  #month td { height: 56px; vertical-align: top; padding-top: 6px; cursor: pointer; }
+  #month td.other { color: #bbb; }
+  #month td.today { background: #e6f7fb; font-weight: 700; }
+  #month td.off { color: #ccc; background: #f7f7f7; cursor: default; }
+  #week th { font-size: .8rem; line-height: 1.3; }
+  #week th.today { background: #cdeef7; }
+  #week td { height: 32px; cursor: pointer; }
+  #week td.t { background: #fce9d9; font-size: .8rem; font-weight: 600; width: 44px; cursor: default; }
+  #week td.x { background: #666; cursor: default; }
+  #week td.sel { background: #fee500; font-weight: 700; }
+  #week td.sel::after { content: '✓'; }
+  .legend { display: flex; gap: 14px; justify-content: center; margin: 10px 0; font-size: .85rem; }
+  .legend i { display: inline-block; width: 14px; height: 14px; border: 1px solid #999; vertical-align: -2px; margin-right: 4px; }
+  .msg { text-align: center; color: #b45309; font-size: .85rem; margin: 8px 0; }
+  .muted { text-align: center; color: #888; font-size: .85rem; }
+  .nav:disabled { visibility: hidden; }
+  #send { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px; background: #fff; border-top: 1px solid #ddd; display: flex; gap: 8px; align-items: center; }
+  #send span { flex: 1; font-size: .9rem; }
+  #send button { border: 0; border-radius: 8px; padding: 12px 14px; font-size: 1rem; }
+  #send .go { background: #fee500; font-weight: 700; }
+  #send .clear { background: #eee; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div id="monthView">
+  <div class="bar"><button class="nav" id="mPrev" onclick="moveMonth(-1)">◀</button><h1 id="mTitle"></h1><button class="nav" id="mNext" onclick="moveMonth(1)">▶</button></div>
+  <table id="month"></table>
+  <p class="muted">날짜를 누르면 그 주의 예약 가능한 시간이 나와요<br>이번 주부터 3주까지 볼 수 있어요</p>
+</div>
+
+<div id="weekView" hidden>
+  <button class="back" onclick="showMonth()">달력</button>
+  <div class="bar"><button class="nav" id="wPrev" onclick="moveWeek(-7)">◀</button><h1 id="wTitle" style="font-size:1.1rem"></h1><button class="nav" id="wNext" onclick="moveWeek(7)">▶</button></div>
+  <div class="legend"><span><i style="background:#fff"></i>예약 가능</span><span><i style="background:#666"></i>예약 불가</span><span><i style="background:#fee500"></i>선택</span></div>
+  <table id="week"></table>
+  <p class="msg" id="msg" hidden></p>
+  <p class="muted" id="status"></p>
+  <p class="muted">원하는 빈 시간을 눌러 고른 뒤 아래 버튼으로 보내주세요</p>
+</div>
+
+<div id="send" hidden>
+  <span id="sendCount"></span>
+  <button class="clear" onclick="clearPicked()">취소</button>
+  <button class="go" onclick="send()">카톡으로 보내기</button>
+</div>
+
+<script>
+// 자료는 구글 앱스 스크립트 웹 앱에서 받는다 (booking/Code.gs)
+var API = 'https://script.google.com/macros/s/AKfycbwMCNu2he3AJqMeAte29mMUpRemw-P4gCdI_ntbF4me02uwMN1DEAVqHDaK-iaqrFKK/exec';
+var DAYS = ['일', '월', '화', '수', '목', '금', '토'];
+var today = key(new Date()), ym = today.slice(0, 7), monday = null;
+var picked = []; // '2026-10-20|11' (날짜|시)
+
+function pad(n) { return (n < 10 ? '0' : '') + n; }
+function key(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+function parse(k) { return new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10)); }
+function addDays(k, n) { var d = parse(k); d.setDate(d.getDate() + n); return key(d); }
+function mondayOf(k) { return addDays(k, -((parse(k).getDay() + 6) % 7)); }
+// 이번 주 월요일 ~ 3주째 일요일만 (서버도 같은 범위만 돌려준다)
+var first = mondayOf(today), last = addDays(first, 20);
+
+var cache = {};
+try { cache = JSON.parse(localStorage.getItem('free-weeks')) || {}; } catch (e) {}
+Object.keys(cache).forEach(function (m) { if (m < first) delete cache[m]; });
+
+// ---------- 월 달력 ----------
+function showMonth() {
+  document.getElementById('weekView').hidden = true;
+  document.getElementById('monthView').hidden = false;
+  document.getElementById('mTitle').textContent = ym.replace('-', '. ');
+  document.getElementById('mPrev').disabled = ym <= first.slice(0, 7);
+  document.getElementById('mNext').disabled = ym >= last.slice(0, 7);
+  var start = addDays(ym + '-01', -parse(ym + '-01').getDay()), h = '<tr>';
+  DAYS.forEach(function (d, i) { h += '<th class="' + (i === 0 ? 'sun' : i === 6 ? 'sat' : '') + '">' + d + '</th>'; });
+  h += '</tr>';
+  for (var w = 0; w < 6; w++) {
+    var k0 = addDays(start, w * 7);
+    if (w > 3 && k0.slice(0, 7) !== ym) break;
+    h += '<tr>';
+    for (var i = 0; i < 7; i++) {
+      var k = addDays(start, w * 7 + i);
+      var ok = k >= first && k <= last;
+      var cls = [i === 0 ? 'sun' : i === 6 ? 'sat' : '', k.slice(0, 7) !== ym ? 'other' : '', k === today ? 'today' : '', ok ? '' : 'off'].join(' ');
+      h += '<td class="' + cls + '"' + (ok ? ' onclick="showWeek(\'' + k + '\')"' : '') + '>' + +k.slice(8) + '</td>';
+    }
+    h += '</tr>';
+  }
+  document.getElementById('month').innerHTML = h;
+}
+function moveMonth(n) {
+  var d = parse(ym + '-01'); d.setMonth(d.getMonth() + n);
+  ym = key(d).slice(0, 7); showMonth();
+}
+
+// ---------- 주 시간표 ----------
+function showWeek(k) {
+  monday = mondayOf(k);
+  document.getElementById('wPrev').disabled = monday <= first;
+  document.getElementById('wNext').disabled = addDays(monday, 7) > last;
+  document.getElementById('monthView').hidden = true;
+  document.getElementById('weekView').hidden = false;
+  var fri = addDays(monday, 4);
+  document.getElementById('wTitle').textContent = monday.replace(/-/g, '.') + ' ~ ' + fri.slice(5).replace('-', '.');
+  drawWeek(cache[monday]);
+  load(monday);
+}
+function moveWeek(n) { showWeek(addDays(monday, n)); }
+
+function drawWeek(data) {
+  var h = '<tr><th style="width:44px"></th>';
+  for (var i = 0; i < 5; i++) {
+    var k = addDays(monday, i);
+    h += '<th class="' + (k === today ? 'today' : '') + '">' + DAYS[i + 1] + '<br>' + +k.slice(5, 7) + '/' + +k.slice(8) + '</th>';
+  }
+  h += '</tr>';
+  for (var t = 0; t < 13; t++) {
+    h += '<tr><td class="t">' + (t + 10) + ':00</td>';
+    for (i = 0; i < 5; i++) {
+      var id = addDays(monday, i) + '|' + (t + 10);
+      if (!data || data.busy[i][t]) h += '<td class="' + (data ? 'x' : '') + '"></td>';
+      else h += '<td class="' + (picked.indexOf(id) >= 0 ? 'sel' : '') + '" onclick="pick(\'' + id + '\')"></td>';
+    }
+    h += '</tr>';
+  }
+  document.getElementById('week').innerHTML = h;
+  document.getElementById('status').textContent = data ? '' : '불러오는 중…';
+  var msg = document.getElementById('msg');
+  msg.hidden = !data || data.fgOk;
+  msg.textContent = '플렉스짐 정보를 못 불러와서 일부 수업이 빠져 있을 수 있어요. 잠시 후 다시 열어주세요.';
+}
+
+function load(m) {
+  fetch(API + '?week=' + m).then(function (r) { return r.json(); }).then(function (data) {
+    if (data.error) throw new Error(data.error);
+    cache[m] = data;
+    try { localStorage.setItem('free-weeks', JSON.stringify(cache)); } catch (e) {}
+    // 고른 사이에 막힌 시간은 빼기
+    picked = picked.filter(function (id) {
+      var d = id.split('|')[0], i = (parse(d) - parse(m)) / 864e5;
+      return i < 0 || i > 4 || !data.busy[i][+id.split('|')[1] - 10];
+    });
+    updateSend();
+    if (m === monday) drawWeek(data);
+  }).catch(function () {
+    if (m === monday && !cache[m]) document.getElementById('status').textContent = '잠시 후 다시 열어주세요';
+  });
+}
+
+// ---------- 고르기·보내기 ----------
+function pick(id) {
+  var i = picked.indexOf(id);
+  if (i >= 0) picked.splice(i, 1); else picked.push(id);
+  picked.sort();
+  updateSend();
+  drawWeek(cache[monday]);
+}
+function clearPicked() { picked = []; updateSend(); drawWeek(cache[monday]); }
+function updateSend() {
+  document.getElementById('send').hidden = !picked.length;
+  document.getElementById('sendCount').textContent = '선택한 시간 ' + picked.length + '개';
+}
+function message() {
+  return '필라테스 예약 문의드려요.\n' + picked.map(function (id) {
+    var d = id.split('|')[0];
+    return +d.slice(5, 7) + '/' + +d.slice(8) + '(' + DAYS[parse(d).getDay()] + ') ' + id.split('|')[1] + ':00';
+  }).join('\n') + '\n이 중에 가능한 시간 있을까요?';
+}
+function send() {
+  var text = message();
+  if (navigator.share) return navigator.share({ text: text }).catch(function () {});
+  // 공유 창이 없는 곳(컴퓨터 등): 복사
+  (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(
+    function () { alert('복사했어요. 카톡에 붙여넣어 보내주세요.\n\n' + text); },
+    function () { prompt('아래 글을 복사해서 보내주세요', text); });
+}
+
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState === 'visible' && monday && !document.getElementById('weekView').hidden) load(monday);
+});
+showMonth();
+</script>
+</body>
+</html>
