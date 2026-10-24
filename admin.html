@@ -35,7 +35,7 @@
 <button class="copy" onclick="copyMember()">회원용 링크 복사</button>
 <div class="bar"><button class="nav" onclick="move(-7)">◀</button><h1 id="title"></h1><button class="nav" onclick="move(7)">▶</button></div>
 <div class="tools"><button onclick="go(today)">이번 주</button><input type="date" id="pickDate" onchange="if (this.value) go(this.value)"><button onclick="load(monday, true)">새로고침</button></div>
-<div class="legend"><span><i style="background:#fff"></i>빈 시간</span><span><i style="background:#fff3b0"></i>시트(PT)</span><span><i style="background:#d6ecff"></i>플렉스짐</span><span><i style="background:#888"></i>색칠·기호</span></div>
+<div class="legend"><span><i style="background:#fff"></i>빈 시간</span><span><i style="background:#fff3b0"></i>시트</span><span><i style="background:#d6ecff"></i>플렉스짐</span><span><i style="background:#888"></i>색칠·기호</span></div>
 <table id="week"></table>
 <p class="msg" id="msg"></p>
 
@@ -90,7 +90,8 @@ function draw(data) {
     for (i = 0; i < 5; i++) {
       for (var tc = 0; tc < 2; tc++) {
         var v = data ? data.cells[tc][i][t] : '';
-        var cls = !v ? '' : /\(PT\)/.test(v) ? 'pt' : /^(그룹|PT)$/.test(v) ? 'grp' : 'x';
+        // 플렉스짐만 → 파랑, 글자 없는 기호·색칠만 → 회색, 시트에 적힌 이름 → 노랑
+        var cls = !v ? '' : /^(그룹|PT)$/.test(v) ? 'grp' : /[\p{L}\p{N}]/u.test(v) ? 'pt' : 'x';
         h += '<td class="' + (tc ? '' : 'd0 ') + cls + '">' + (v === '-' ? '' : esc(v)) + '</td>';
       }
     }
