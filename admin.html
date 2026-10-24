@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>치얼업 PT시간표 관리자</title>
+<style>
+  .copy { position: absolute; right: 10px; top: 10px; border: 0; border-radius: 6px; padding: 6px 9px; background: #fee500; font-size: .78rem; font-weight: 700; }
+  .bar { margin-top: 40px !important; }
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 10px; background: #f4f4f4; color: #222; }
+  .bar { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 4px 0 8px; }
+  .bar h1 { font-size: 1.05rem; margin: 0; min-width: 9em; text-align: center; }
+  .nav { width: 38px; height: 38px; border-radius: 50%; border: 0; background: #5f6b5f; color: #fff; font-size: 1rem; }
+  .tools { display: flex; gap: 8px; justify-content: center; margin-bottom: 8px; }
+  .tools button, .tools input { font-size: .85rem; padding: 5px 8px; border: 1px solid #bbb; border-radius: 6px; background: #fff; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; background: #fff; }
+  th, td { border: 1px solid #ccc; text-align: center; }
+  th { background: #eee; font-size: .78rem; line-height: 1.3; padding: 4px 0; }
+  th.tn { font-size: .6rem; font-weight: 500; padding: 2px 0; }
+  th.today { background: #cdeef7; }
+  .d0 { border-left: 2px solid #888; }
+  td { height: 30px; font-size: .62rem; line-height: 1.15; word-break: keep-all; overflow-wrap: anywhere; padding: 1px; }
+  td.t { background: #fce9d9; font-size: .72rem; font-weight: 600; }
+  td.pt { background: #fff3b0; }   /* 시트에 적힌 PT 회원 */
+  td.grp { background: #d6ecff; }  /* 플렉스짐 수업 */
+  td.x { background: #888; color: #fff; } /* 색칠만 / 기호 */
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: 8px 0; font-size: .78rem; }
+  .legend i { display: inline-block; width: 12px; height: 12px; border: 1px solid #999; vertical-align: -2px; margin-right: 3px; }
+  .msg { text-align: center; color: #b45309; font-size: .85rem; margin: 8px 0; }
+</style>
+</head>
+<body>
+<!-- 관리자용: 칸에 실제 내용이 보인다. 링크 끝 #k=열쇠 를 서버가 확인한 뒤에만 내용을 준다 -->
+<button class="copy" onclick="copyMember()">회원용 링크 복사</button>
+<div class="bar"><button class="nav" onclick="move(-7)">◀</button><h1 id="title"></h1><button class="nav" onclick="move(7)">▶</button></div>
+<div class="tools"><button onclick="go(today)">이번 주</button><input type="date" id="pickDate" onchange="if (this.value) go(this.value)"><button onclick="load(monday, true)">새로고침</button></div>
+<div class="legend"><span><i style="background:#fff"></i>빈 시간</span><span><i style="background:#fff3b0"></i>시트(PT)</span><span><i style="background:#d6ecff"></i>플렉스짐</span><span><i style="background:#888"></i>색칠·기호</span></div>
+<table id="week"></table>
+<p class="msg" id="msg"></p>
+
+<script>
+// 자료는 구글 앱스 스크립트 웹 앱에서 받는다 (booking/Code.gs)
+var API = 'https://script.google.com/macros/s/AKfycbwMCNu2he3AJqMeAte29mMUpRemw-P4gCdI_ntbF4me02uwMN1DEAVqHDaK-iaqrFKK/exec';
+var MEMBER_URL = 'https://cheerup-studio.github.io/?pt';
+var DAYS = ['일', '월', '화', '수', '목', '금', '토'], TEACHERS = ['원장님', '정지원 선생님'];
+
+// 열쇠: 링크 끝 #k=… 로 처음 받으면 이 휴대폰에 기억하고, 주소창에서는 지운다
+var adminKey = '';
+try { adminKey = localStorage.getItem('admin-key') || ''; } catch (e) {}
+var fromLink = (location.hash.match(/k=([^&]+)/) || [])[1];
+if (fromLink) {
+  adminKey = decodeURIComponent(fromLink);
+  try { localStorage.setItem('admin-key', adminKey); } catch (e) {}
+  history.replaceState(null, '', location.pathname);
+}
+
+function copyMember() {
+  (navigator.clipboard ? navigator.clipboard.writeText(MEMBER_URL) : Promise.reject()).then(
+    function () { alert('회원용 링크를 복사했어요.\n' + MEMBER_URL); },
+    function () { prompt('아래 링크를 복사하세요', MEMBER_URL); });
+}
+var today = key(new Date()), monday = null, weeks = {};
+
+function pad(n) { return (n < 10 ? '0' : '') + n; }
+function key(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+function parse(k) { return new Date(+k.slice(0, 4), +k.slice(5, 7) - 1, +k.slice(8, 10)); }
+function addDays(k, n) { var d = parse(k); d.setDate(d.getDate() + n); return key(d); }
+function mondayOf(k) { return addDays(k, -((parse(k).getDay() + 6) % 7)); }
+function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+function go(k) {
+  monday = mondayOf(k);
+  document.getElementById('title').textContent = monday.replace(/-/g, '.') + ' ~ ' + addDays(monday, 4).slice(5).replace('-', '.');
+  draw(weeks[monday]);
+  if (!weeks[monday]) load(monday);
+}
+function move(n) { go(addDays(monday, n)); }
+
+function draw(data) {
+  var h = '<colgroup><col style="width:36px">' + new Array(11).join('<col>') + '</colgroup><tr><th rowspan="2"></th>', names = '';
+  for (var i = 0; i < 5; i++) {
+    var k = addDays(monday, i);
+    h += '<th colspan="2" class="d0' + (k === today ? ' today' : '') + '">' + DAYS[i + 1] + ' ' + +k.slice(5, 7) + '/' + +k.slice(8) + '</th>';
+    TEACHERS.forEach(function (n, tc) { names += '<th class="tn' + (tc ? '' : ' d0') + '">' + n.replace(' ', '<br>') + '</th>'; });
+  }
+  h += '</tr><tr>' + names + '</tr>';
+  for (var t = 0; t < 13; t++) {
+    h += '<tr><td class="t">' + (t + 10) + '</td>';
+    for (i = 0; i < 5; i++) {
+      for (var tc = 0; tc < 2; tc++) {
+        var v = data ? data.cells[tc][i][t] : '';
+        var cls = !v ? '' : /\(PT\)/.test(v) ? 'pt' : /^(그룹|PT)$/.test(v) ? 'grp' : 'x';
+        h += '<td class="' + (tc ? '' : 'd0 ') + cls + '">' + (v === '-' ? '' : esc(v)) + '</td>';
+      }
+    }
+    h += '</tr>';
+  }
+  document.getElementById('week').innerHTML = h;
+  document.getElementById('msg').textContent = !data ? '불러오는 중…' : data.fgOk ? '' : '플렉스짐 정보를 못 불러왔어요. 새로고침을 눌러 보세요.';
+}
+
+function load(m, again) {
+  if (again) document.getElementById('msg').textContent = '불러오는 중…';
+  fetch(API + '?admin=' + m + '&key=' + encodeURIComponent(adminKey))
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.error) throw new Error(data.error);
+      weeks[m] = data;
+      if (m === monday) draw(data);
+    })
+    .catch(function (e) { if (m === monday) document.getElementById('msg').textContent = e.message || '잠시 후 다시 열어주세요'; });
+}
+
+go(today);
+</script>
+</body>
+</html>
